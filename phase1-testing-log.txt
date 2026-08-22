@@ -1,0 +1,117 @@
+SLM SECURITY ANALYSIS APP — PHASE 1 TESTING LOG
+Date: August 23, 2026
+Model tested: qwen2.5-coder:7b (via Ollama, local)
+Hardware: RTX 4060 Laptop GPU (8GB VRAM), 16GB RAM, i7-13650HX
+
+GOAL OF PHASE 1
+Determine whether the base model, without any fine-tuning, can reliably
+detect vulnerabilities and return structured JSON output. Fine-tuning was
+deliberately deferred until specific failure patterns are known.
+
+CWE SCOPE (10 types selected for this project)
+CWE-78  — OS Command Injection
+CWE-798 — Hardcoded Credentials
+CWE-89  — SQL Injection
+CWE-79  — Cross-Site Scripting (XSS)
+CWE-22  — Path Traversal
+CWE-502 — Insecure Deserialization
+CWE-918 — Server-Side Request Forgery (SSRF)
+CWE-327 — Weak Cryptography
+CWE-330 — Insecure Randomness
+CWE-20  — Improper Input Validation
+
+TEST 1 — Plain-language prompt, single vulnerability
+Code: os.system("ping " + user_input)
+Prompt: plain-language request, no JSON format specified
+Result: Model correctly identified the command injection issue and
+suggested replacing os.system with subprocess.run. No structured format
+requested at this stage, so output was prose, not JSON.
+
+TEST 2 — JSON-format prompt, single vulnerability (CWE-78)
+Same code as Test 1, this time with a JSON schema in the prompt.
+Result: Correct CWE (CWE-78), correct severity (high), correct line
+number, valid JSON. Output wrapped in markdown code fences (```json),
+which is easy to strip in code and not treated as a failure.
+
+TEST 3 — JSON-format prompt, single vulnerability (CWE-798)
+Code: API_KEY = "sk-live-abc123xyz789" / requests.get with API key in header
+Result: Correct CWE (CWE-798), correct severity, correct line, valid fix
+suggestion (use environment variables).
+
+TEST 4 — JSON-format prompt, single vulnerability (CWE-89)
+Code: string-concatenated SQL query
+Result: Correct CWE (CWE-89), correct severity, correct line, valid fix
+suggestion (parameterized queries).
+
+TEST 5 — Multiple vulnerabilities in one file, first attempt
+Code: combined CWE-78 and CWE-798 in one file (5 lines)
+Prompt: same JSON-format instruction as Tests 2-4, no explicit
+instruction to look for multiple issues, no array format requested.
+Result: FAILED. Model only reported one of the two vulnerabilities
+(CWE-78) and ignored the hardcoded API key. Line number was also off
+by one (reported line 6 for code on line 5).
+
+TEST 6 — Multiple vulnerabilities, revised prompt
+Same code as Test 5. Prompt revised to explicitly request a JSON array,
+state there may be more than one vulnerability, and instruct the model
+not to omit any.
+Result: PASSED. Model correctly returned both vulnerabilities (CWE-78
+and CWE-798) as a JSON array, with correct CWE IDs and severities.
+Conclusion: Test 5's failure was a prompting issue, not a model
+capability issue.
+
+TEST 7 — False positive check, safe code
+Code: subprocess.run(['ping', user_input], capture_output=True) — the
+safe pattern, no actual vulnerability present.
+Prompt: same array-format instruction as Test 6, no few-shot examples.
+Result: FAILED. Model reported a fabricated command-injection finding
+on safe code, and the suggested fix text was unrelated to the code
+(referenced "parameterized queries," which applies to SQL injection,
+not this snippet). Indicates the model was pattern-matching on
+surface features rather than reasoning about the actual code.
+
+TEST 8 — False positive check, with few-shot examples
+Same code as Test 7. Prompt extended to include one vulnerable example
+and one safe example side by side, so the model has a contrast case.
+Result: PASSED. Model correctly returned an empty array. Conclusion:
+few-shot examples (showing both a vulnerable and a safe case per CWE)
+resolved the false-positive issue for this CWE, without any
+fine-tuning.
+
+TEST 9 — Full 10-CWE prompt, mixed realistic code
+Prompt expanded to include one vulnerable and one safe few-shot example
+for all 10 scoped CWEs (20 examples total), followed by a test file
+combining three real issues (CWE-327 weak hash, CWE-330 insecure
+randomness, CWE-79 XSS) and one clean function using a parameterized
+query.
+Result: MIXED.
+- Correctly identified all three real vulnerabilities (CWE-327, CWE-330,
+  CWE-79) with correct severities and correct line numbers.
+- Incorrectly flagged the clean, parameterized-query function as
+  "Improper Input Validation" (CWE-20) — a false positive. This function
+  was intentionally written using the safe pattern from the CWE-89
+  example and does not contain a real vulnerability.
+
+OVERALL PHASE 1 CONCLUSION
+The base model (qwen2.5-coder:7b, no fine-tuning) can reliably detect
+single and multiple known vulnerability patterns, given a prompt that:
+1. Explicitly asks for a JSON array (not a single object)
+2. Explicitly states there may be more than one issue, or none
+3. Includes a vulnerable and a safe few-shot example per CWE type
+
+Known open issue: the model still produces occasional false positives
+on code adjacent to a pattern it has seen (e.g., flagging a safe,
+parameterized query as an input-validation issue). This was logged
+rather than immediately corrected, since fine-tuning has been
+deliberately deferred to a later phase, once more failure data like
+this has accumulated.
+
+Line numbers were occasionally off by one across several tests; this
+is expected to be handled by cross-checking model output against
+actual AST/line data in the backend, rather than trusted as-is.
+
+NEXT STEPS (as of this log)
+- Move to Phase 3: build the FastAPI backend that sends code through
+  this prompt to Ollama and validates the returned JSON.
+- Continue logging false positives and false negatives as they appear,
+  to build a real dataset for Phase 2 fine-tuning later.
