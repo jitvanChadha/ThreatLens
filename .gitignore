@@ -1,0 +1,47 @@
+# Python Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+*.venv/
+
+# Python caching & bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js dependencies & builds
+node_modules/
+dist/
+build/
+.eslintcache
+.oxlintrc.json
+
+# Environment variables & local secrets
+.env
+.env.*
+.secrets
+*.key
+*.pem
+
+# IDEs & System files
+.vscode/
+.idea/
+.project
+.pydevproject
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Application logs & database
+*.log
+*.sqlite3
+*.db
