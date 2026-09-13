@@ -1,10 +1,19 @@
-import { ArrowUpRight, ShieldAlert } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useTypewriter } from '../utils/useTypewriter';
 
 function lineLabel(f) {
   if (!f.line_start && !f.line_end) return null;
   return f.line_start === f.line_end
-    ? `Line ${f.line_start}`
-    : `Lines ${f.line_start}–${f.line_end}`;
+    ? `L${f.line_start}`
+    : `L${f.line_start}–${f.line_end}`;
+}
+
+// The full "line" string that gets typed out character-by-character
+function buildLineString(finding, index) {
+  const num  = String(index + 1).padStart(2, '0');
+  const vuln = finding.vulnerability || '';
+  const line = lineLabel(finding) ? `  ${lineLabel(finding)}` : '';
+  return `[${num}]  ${vuln}${line}`;
 }
 
 export default function FindingCard({
@@ -12,54 +21,92 @@ export default function FindingCard({
   index,
   isActive,
   onSelectFinding,
+  onApplyFix,
+  onRevealNext,
 }) {
-  const lineTxt = lineLabel(finding);
+  const [expanded, setExpanded] = useState(true);
+
+  // 1. Title line typing
+  const lineString = buildLineString(finding, index);
+  const { displayed: displayedTitle, done: titleDone } = useTypewriter(lineString, 14, 0, true);
+
+  // 2. Description typing - only starts after title is done
+  const hasDesc = Boolean(finding.description);
+  const { displayed: displayedDesc, done: descDone } = useTypewriter(
+    finding.description || '',
+    8,
+    60,
+    titleDone && hasDesc
+  );
+  const isDescEffectivelyDone = !hasDesc || descDone;
+
+  // 3. Fix typing - only starts after description is done
+  const hasFix = Boolean(finding.fix);
+  const { displayed: displayedFix, done: fixDone } = useTypewriter(
+    finding.fix || '',
+    6,
+    60,
+    titleDone && isDescEffectivelyDone && hasFix
+  );
+  const isFixEffectivelyDone = !hasFix || fixDone;
+
+  // 4. Trigger next finding ONLY when title, entire desc, and entire fix are done
+  const isCardFullyDone = titleDone && isDescEffectivelyDone && isFixEffectivelyDone;
+
+  useEffect(() => {
+    if (isCardFullyDone && onRevealNext) {
+      const t = setTimeout(onRevealNext, 250);
+      return () => clearTimeout(t);
+    }
+  }, [isCardFullyDone, onRevealNext]);
 
   return (
     <div
-      className={`finding-card ${isActive ? 'is-active' : ''}`}
-      style={{ animationDelay: `${index * 0.05}s` }}
-      onClick={() => onSelectFinding?.(finding)}
+      className={`term-row${isActive ? ' is-active' : ''}`}
     >
-      {lineTxt && (
-        <div className="card-head">
-          <div className="card-head-left" />
-          <button
-            type="button"
-            className="line-pill-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectFinding?.(finding);
-            }}
-            title="Click to jump to line in editor"
-          >
-            <span>{lineTxt}</span>
-            <ArrowUpRight size={11} />
-          </button>
+      {/* Main typed line */}
+      <button
+        type="button"
+        className="term-line"
+        onClick={() => {
+          onSelectFinding?.(finding);
+          setExpanded((v) => !v);
+        }}
+        aria-expanded={expanded}
+      >
+        {/* Typed content - full problem title displayed */}
+        <span className="term-typed-content">
+          {displayedTitle}
+          {!titleDone && <span className="term-cursor">▋</span>}
+        </span>
+      </button>
+
+      {/* Expanded detail block */}
+      {expanded && (
+        <div className="term-detail">
+          {/* desc line types in once title is done */}
+          {hasDesc && titleDone && (
+            <div className="term-detail-line">
+              <span className="term-detail-key">desc:</span>
+              <span className="term-detail-val">
+                {displayedDesc}
+                {!descDone && <span className="term-cursor">▋</span>}
+              </span>
+            </div>
+          )}
+
+          {/* Fix block — shows and types once desc is done */}
+          {hasFix && titleDone && isDescEffectivelyDone && (
+            <div className="term-detail-line">
+              <span className="term-detail-key">fix:</span>
+              <span className="term-detail-val term-fix-val">
+                {displayedFix}
+                {!fixDone && <span className="term-cursor">▋</span>}
+              </span>
+            </div>
+          )}
         </div>
       )}
-
-      <div className="card-body">
-        <div className="vuln-name">
-          <ShieldAlert size={15} className="vuln-icon" />
-          <span>{finding.vulnerability}</span>
-        </div>
-
-        <div className="section-block">
-          <p className="desc-text">{finding.description}</p>
-        </div>
-
-        {finding.fix && (
-          <div className="fix-block">
-            <div className="fix-header">
-              <span className="section-label">Remediation Strategy</span>
-            </div>
-            <pre className="fix-code-box">
-              <code>{finding.fix}</code>
-            </pre>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

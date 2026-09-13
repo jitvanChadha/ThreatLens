@@ -1,0 +1,69 @@
+====================================================================
+                        THREATLENS RUN GUIDE
+====================================================================
+
+PREREQUISITES:
+  1. Python 3.10+
+  2. Node.js (v18+) and npm
+  3. Ollama (https://ollama.com)
+
+--------------------------------------------------------------------
+STEP 1: Start Ollama and Pull Required SLM Model
+--------------------------------------------------------------------
+Open a terminal and ensure Ollama is running and has the Qwen model:
+
+  ollama pull qwen2.5-coder:7b
+  ollama run qwen2.5-coder:7b
+
+(Ollama will run locally on http://localhost:11434)
+
+--------------------------------------------------------------------
+STEP 2: Start the FastAPI Backend
+--------------------------------------------------------------------
+Open a new terminal window:
+
+  1. Navigate to the backend directory:
+     cd backend
+
+  2. Create and activate a Python virtual environment:
+     - Windows (PowerShell):
+         python -m venv .venv
+         .\.venv\Scripts\Activate.ps1
+     - Windows (CMD):
+         python -m venv .venv
+         .\.venv\Scripts\activate.bat
+     - macOS / Linux:
+         python3 -m venv .venv
+         source .venv/bin/activate
+
+  3. Install dependencies:
+     pip install -r requirements.txt
+
+  4. Start the server:
+     uvicorn main:app --reload --port 8000
+
+(Backend will run at http://127.0.0.1:8000)
+
+--------------------------------------------------------------------
+STEP 3: Start the React Frontend
+--------------------------------------------------------------------
+Open a third terminal window:
+
+  1. Navigate to the frontend directory:
+     cd frontend
+
+  2. Install Node dependencies (first time only):
+     npm install
+
+  3. Start the dev server:
+     npm run dev
+
+  4. Open your browser and navigate to the address shown 
+     (typically http://localhost:5173).
+
+--------------------------------------------------------------------
+SUMMARY OF SERVICES:
+  - Ollama Server : http://localhost:11434
+  - FastAPI Backend: http://127.0.0.1:8000
+  - React Frontend : http://localhost:5173
+====================================================================

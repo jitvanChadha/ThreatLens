@@ -5,10 +5,9 @@ import {
   Shield,
   ShieldCheck,
   AlertTriangle,
-  Sparkles,
 } from 'lucide-react';
 
-import Sidebar from './components/Sidebar';
+import BottomNav from './components/BottomNav';
 import PageHeader from './components/PageHeader';
 import FindingCard from './components/FindingCard';
 import PageGuide from './components/PageGuide';
@@ -50,9 +49,13 @@ export default function App() {
   const [backendUp, setBackendUp] = useState(null);
   const [panelState, setPanelState] = useState('idle'); // idle | loading | done | error
   const [findings, setFindings] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(0);
   const [error, setError] = useState('');
   const [selectedFinding, setSelectedFinding] = useState(null);
   const [lastScanDuration, setLastScanDuration] = useState(null);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisElapsed, setAnalysisElapsed] = useState(0);
+  const timerRef = useRef(null);
 
   // Dialogs & drawers
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -78,31 +81,36 @@ export default function App() {
   useEffect(() => {
     checkHealth();
     const id = setInterval(checkHealth, 15000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [checkHealth]);
 
-  // Define custom Monaco Dark Theme
+
+  // Define custom Monaco Dark Grey Theme
   const defineMonacoThemes = (monaco) => {
-    monaco.editor.defineTheme('threatlens-obsidian', {
+    monaco.editor.defineTheme('threatlens-darkgrey', {
       base: 'vs-dark',
       inherit: true,
       rules: [
-        { token: 'comment', foreground: '6b6155', fontStyle: 'italic' },
-        { token: 'keyword', foreground: 'D29922', fontStyle: 'bold' },
-        { token: 'string', foreground: '3FB950' },
-        { token: 'number', foreground: 'c9a96e' },
-        { token: 'identifier', foreground: 'e8dfd0' },
+        { token: 'comment', foreground: '768390', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'f47067', fontStyle: 'bold' },
+        { token: 'string', foreground: '57ab5a' },
+        { token: 'number', foreground: '6cb6ff' },
+        { token: 'identifier', foreground: 'c9d1d9' },
+        { token: 'delimiter', foreground: '8b949e' },
       ],
       colors: {
-        'editor.background': '#100e0c',
-        'editor.foreground': '#e8dfd0',
-        'editor.lineHighlightBackground': '#181410',
-        'editorLineNumber.foreground': '#3d3530',
-        'editorLineNumber.activeForeground': '#9e9385',
-        'editorCursor.foreground': '#c9a96e',
-        'editor.selectionBackground': '#2d2822',
-        'editorIndentGuide.background1': '#251f1a',
-        'editorIndentGuide.activeBackground1': '#3d3530',
+        'editor.background': '#0d0e11',
+        'editor.foreground': '#c9d1d9',
+        'editor.lineHighlightBackground': '#14161a',
+        'editorLineNumber.foreground': '#3f444e',
+        'editorLineNumber.activeForeground': '#c9d1d9',
+        'editorCursor.foreground': '#58a6ff',
+        'editor.selectionBackground': '#212c3d',
+        'editorIndentGuide.background1': '#16181d',
+        'editorIndentGuide.activeBackground1': '#2b3039',
       },
     });
   };
@@ -113,7 +121,7 @@ export default function App() {
     monacoRef.current = monaco;
 
     defineMonacoThemes(monaco);
-    monaco.editor.setTheme('threatlens-obsidian');
+    monaco.editor.setTheme('threatlens-darkgrey');
 
     editor.onDidChangeModelContent(() => {
       setLineCount(editor.getModel().getLineCount());
@@ -170,10 +178,23 @@ export default function App() {
     const code = editorRef.current?.getValue()?.trim();
     if (!code) return;
 
+    if (timerRef.current) clearInterval(timerRef.current);
+
     setPanelState('loading');
+    setAnalysisProgress(5);
+    setAnalysisElapsed(0);
+    setVisibleCount(0);
     clearHighlights();
     setSelectedFinding(null);
     const startTime = performance.now();
+
+    timerRef.current = setInterval(() => {
+      const elapsed = Math.round(performance.now() - startTime);
+      setAnalysisElapsed(elapsed);
+      // Asymptotically approach ~93% while waiting
+      const p = Math.min(93, Math.round(5 + 88 * (1 - Math.exp(-elapsed / 2200))));
+      setAnalysisProgress(p);
+    }, 40);
 
     try {
       const res = await fetch(`${API}/analyze`, {
@@ -182,8 +203,14 @@ export default function App() {
         body: JSON.stringify({ code }),
       });
 
+      if (timerRef.current) clearInterval(timerRef.current);
       const elapsed = Math.round(performance.now() - startTime);
       setLastScanDuration(elapsed);
+      setAnalysisElapsed(elapsed);
+      setAnalysisProgress(100);
+
+      // Brief 200ms pause so the user visually catches the 100% full bar
+      await new Promise((r) => setTimeout(r, 200));
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -196,9 +223,13 @@ export default function App() {
       const data = await res.json();
       const list = data.findings ?? [];
       setFindings(list);
+      // Reveal first card immediately; subsequent cards unlock via onRevealNext
+      setVisibleCount(list.length > 0 ? 1 : 0);
       setPanelState('done');
       highlightLines(list);
     } catch (e) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setAnalysisProgress(100);
       setError(e.message || 'Could not reach the backend. Ensure FastAPI (uvicorn) is running.');
       setPanelState('error');
     }
@@ -351,30 +382,24 @@ ${f.fix}
 
   return (
     <div className="app-layout">
-      {/* Left Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        backendUp={backendUp}
-        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
-      />
-
       {/* Main Content Region */}
       <div className="main-content">
-        {activeTab === 'security-check' && (
-          <>
-            {/* Top Masthead Header */}
-            <PageHeader
-              isLoading={isLoading}
-              lineCount={lineCount}
-              findingsCount={findings.length}
-              onAnalyze={analyze}
-              onResetCode={() => setConfirmResetOpen(true)}
-              onSelectSample={(s) => handleLoadCode(s.code)}
-            />
+        {/* Main Security Check Studio */}
+        <div
+          className="feature-view security-check-view"
+          style={{
+            display: activeTab === 'security-check' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Top Masthead Header */}
+          <PageHeader />
 
-            {/* Split Workspace Layout */}
-            <div className="workspace-container" ref={containerRef}>
+          {/* Split Workspace Layout */}
+          <div className="workspace-container" ref={containerRef}>
               {/* Editor Column */}
               <div className="editor-column">
                 <div className="editor-toolbar">
@@ -390,7 +415,7 @@ ${f.fix}
                     height="100%"
                     defaultLanguage="python"
                     defaultValue={DEFAULT_CODE}
-                    theme="threatlens-obsidian"
+                    theme="threatlens-darkgrey"
                     onMount={handleEditorMount}
                     options={{
                       fontSize: 13.5,
@@ -439,27 +464,41 @@ ${f.fix}
                     </span>
                   )}
                   {panelState === 'done' && findings.length === 0 && (
-                    <span className="findings-count-badge is-safe">0 Issues (Clean)</span>
+                    <span className="findings-count-badge is-safe">No issues found</span>
                   )}
                 </div>
 
                 <div className="findings-scroll-area">
                   {panelState === 'idle' && (
-                    <div className="empty-state">
-                      <div className="empty-icon-wrap">
-                        <Sparkles size={24} />
-                      </div>
-                      <div className="empty-title">Ready for Analysis</div>
+                    <div className="empty-state-text">
+                      READY FOR ANALYSIS
                     </div>
                   )}
 
                   {panelState === 'loading' && (
-                    <div className="loading-state">
-                      <div className="scanning-orb" />
-                      <div className="loading-title">Analyzing Source Code…</div>
-                      <span className="loading-sub">
-                        Local SLM inference in progress • evaluating 10 CWE classes
-                      </span>
+                    <div className="pixel-loading-container">
+                      <div className="pixel-progress-frame">
+                        {Array.from({ length: 16 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`pixel-segment ${
+                              i < Math.round((analysisProgress / 100) * 16)
+                                ? 'is-active'
+                                : ''
+                            }`}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="pixel-loading-title">
+                        ANALYZING{['', '.', '..', '...'][Math.floor((analysisElapsed / 320) % 4)]}
+                      </div>
+
+                      <div className="pixel-loading-meta">
+                        <span>[ {(analysisElapsed / 1000).toFixed(1)}s ]</span>
+                        <span className="pixel-dot-sep">•</span>
+                        <span>{analysisProgress}%</span>
+                      </div>
                     </div>
                   )}
 
@@ -474,20 +513,20 @@ ${f.fix}
                   )}
 
                   {panelState === 'done' && findings.length === 0 && (
-                    <div className="safe-banner">
-                      <div className="safe-icon-wrap">
+                    <div className="retro-safe-state">
+                      <div className="retro-safe-icon-wrap">
                         <ShieldCheck size={26} />
                       </div>
-                      <div className="safe-title">No Vulnerabilities Detected</div>
-                      <p className="safe-sub">
-                        The analyzed snippet did not exhibit matches against the supported CWE taxonomy.
+                      <div className="retro-safe-title">No issues found</div>
+                      <p className="retro-safe-sub">
+                        Clean source buffer • analyzed in {lastScanDuration}ms with 0 CWE detections
                       </p>
                     </div>
                   )}
 
                   {panelState === 'done' &&
                     findings.length > 0 &&
-                    findings.map((f, i) => (
+                    findings.slice(0, visibleCount).map((f, i) => (
                       <FindingCard
                         key={i}
                         finding={f}
@@ -495,27 +534,68 @@ ${f.fix}
                         isActive={selectedFinding === f}
                         onSelectFinding={handleSelectFinding}
                         onApplyFix={handleApplyFix}
+                        onRevealNext={
+                          i === visibleCount - 1 && visibleCount < findings.length
+                            ? () => setVisibleCount((c) => c + 1)
+                            : undefined
+                        }
                       />
                     ))}
                 </div>
               </div>
             </div>
-          </>
-        )}
+        </div>
 
         {/* Debugger View */}
-        {activeTab === 'debugger' && <DebuggerView />}
+        <div
+          className="feature-view"
+          style={{
+            display: activeTab === 'debugger' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <DebuggerView />
+        </div>
 
         {/* Ingest Code View */}
-        {activeTab === 'ingest-code' && (
+        <div
+          className="feature-view"
+          style={{
+            display: activeTab === 'ingest-code' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           <IngestCodeView onSelectCodeForAnalysis={handleLoadCode} />
-        )}
+        </div>
 
         {/* Code Writer View */}
-        {activeTab === 'code-writer' && (
+        <div
+          className="feature-view"
+          style={{
+            display: activeTab === 'code-writer' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           <CodeWriterView onSelectCodeForAnalysis={handleLoadCode} />
-        )}
+        </div>
       </div>
+
+      {/* Bottom Navigation Bar */}
+      <BottomNav
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        backendUp={backendUp}
+        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+      />
 
       {/* Floating Page Guide popover */}
       <PageGuide />

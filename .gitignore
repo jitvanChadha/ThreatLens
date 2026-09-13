@@ -45,3 +45,6 @@ Thumbs.db
 *.log
 *.sqlite3
 *.db
+data/
+backend/data/
+

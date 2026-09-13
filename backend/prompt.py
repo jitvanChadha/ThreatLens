@@ -10,7 +10,8 @@ RULES:
 2. If the code is safe, return an empty JSON array: []
 3. There may be zero, one, or multiple vulnerabilities — report ALL that apply.
 4. Do NOT fabricate findings. If a pattern looks similar to a vulnerable one but
-   uses the safe/recommended approach (see the examples), it is NOT vulnerable.
+   uses the safe/recommended approach (such as parameterized cursor.execute("... %s", (val,))
+   or cursor.fetchall()), it is NOT vulnerable. Never flag safe parameterized queries.
 5. Return ONLY a valid JSON array — no markdown fences, no prose, no explanation.
 
 OUTPUT SCHEMA (per finding):
@@ -82,9 +83,14 @@ Finding:
 SAFE:
 1 | def get_user(username):
 2 |     cursor.execute("SELECT * FROM users WHERE name = %s", (username,))
+3 |     users = cursor.fetchall()
 
 Finding:
 []
+
+CRITICAL NOTE ON SQL INJECTION:
+- Code using cursor.execute(query, (params,)) where placeholders like %s, ?, or :name are passed alongside a tuple/list/dict is PARAMETERIZED AND SAFE. NEVER flag it as SQL injection.
+- Lines calling cursor.fetchall(), cursor.fetchone(), or cursor.fetchmany() are simply retrieving database records and are NEVER vulnerable to SQL injection.
 
 --- Example 4: CWE-79 — Cross-Site Scripting (XSS) ---
 
@@ -270,12 +276,19 @@ def add_line_numbers(code: str) -> str:
     )
 
 
-def prompt_builder(code: str, doc_context: str = "") -> str:
+def prompt_builder(code: str, doc_context: str = "", rag_context: str = "") -> str:
     numbered = add_line_numbers(code)
     prompt = PROMPT_TEMPLATE.replace("{code}", numbered)
+    extra_context = []
     if doc_context:
+        extra_context.append(f"Here is up-to-date documentation and security guidelines from Context7 for the libraries used in this code:\n{doc_context}")
+    if rag_context:
+        extra_context.append(f"Here is retrieved codebase and security pattern context from the ThreatLens Knowledge Base:\n{rag_context}")
+
+    if extra_context:
+        joined_context = "\n\n".join(extra_context)
         prompt = prompt.replace(
             "Now analyse the following code.",
-            f"Here is up-to-date documentation and security guidelines from Context7 for the libraries used in this code:\n{doc_context}\n\nNow analyse the following code."
+            f"{joined_context}\n\nNow analyse the following code."
         )
     return prompt
